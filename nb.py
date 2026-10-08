@@ -1,4 +1,5 @@
 import re
+import numpy as np
 from pathlib import Path
 
 
@@ -36,7 +37,7 @@ def preprocess(text):
     text = text.lower()
     return text.split()
 
-class NaivebayesClassifier:
+class NaiveBayesClassifier:
     def __init__(self):
         # stores the number of reviews per class
         self.documents = {}
@@ -77,15 +78,103 @@ class NaivebayesClassifier:
 
                 self.vocabulary.add(word)
 
+    def prior(self, c):
+        class_docs = self.documents[c]
+        total_docs = sum(self.documents.values())
+        return class_docs / total_docs
+
+    def likelihood(self, word, c):
+        num_in_class = self.word_count[c].get(word, 0) + 1 # La Place smooting
+        total_in_class = self.total_word_count[c] + len(self.vocabulary)
+        return num_in_class / total_in_class
+
+    def score(self, words, c):
+        result = 0
+
+        p = np.log(self.prior(c))
+
+        for word in words:
+            if word in self.vocabulary:
+                result += np.log(self.likelihood(word, c))
+
+        return p + result
+
+    def classify(self, text):
+        classes = self.documents.keys()
+
+        text = preprocess(text)
+
+        ranking = {}
+
+        for c in classes:
+            s = self.score(text, c)
+            ranking[c] = s
+
+        return max(ranking, key=ranking.get)
+
+
+def evaluate(model:NaiveBayesClassifier, test_docs): 
+
+    pairs = []
+
+    for label, text in test_docs:
+        prediction = model.classify(text)
+        pairs.append((label, prediction))
+
+        marker = "" if prediction == label else "   <-- WRONG"
+        print(f"{text} : {prediction} (true: {label}){marker}")
+
+    return pairs
+
+def metrics(pairs):
+    # accuracy
+    correct = 0
+    for true, pred in pairs:
+        if true == pred:
+            correct += 1
+    print("accuracy:", correct / len(pairs))
+
+    # precision, recall, f1 for each class
+    for c in ["POS", "NEU", "NEG"]:
+        tp = 0
+        fp = 0
+        fn = 0
+
+        for true, pred in pairs:
+            if true == c and pred == c:
+                tp += 1
+            elif pred == c:          # predicted c, but it wasn't
+                fp += 1
+            elif true == c:          # it was c, but predicted something else
+                fn += 1
+
+        precision = tp / (tp + fp) if tp + fp > 0 else 0
+        recall = tp / (tp + fn) if tp + fn > 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+
+        print(f"{c} precision: {precision:.2f} recall: {recall:.2f} f1: {f1:.2f}")
+
 if __name__ == "__main__":
-    nbc = NaivebayesClassifier()
+    nbc = NaiveBayesClassifier()
     results = load_small("trainingSet.txt")
     # print(len(results))
     # print(results)
 
     nbc.train(results)
 
-    print(nbc.documents)                    # expect {'POS': 6, 'NEU': 6, 'NEG': 6}
-    print(nbc.word_count["NEU"]["software"]) # expect 3
-    print(nbc.total_word_count)
-    print(len(nbc.vocabulary))
+    # print(nbc.documents)                    # expect {'POS': 6, 'NEU': 6, 'NEG': 6}
+    # print(nbc.word_count["NEU"]["software"]) # expect 3
+    # print(nbc.total_word_count)
+    # print(len(nbc.vocabulary))
+
+    # print(nbc.prior("POS"))
+    # print(nbc.likelihood("software", "NEU"))
+    # print(nbc.likelihood("software", "POS"))
+    # print(nbc.likelihood("zzz", "POS"))
+
+    test_docs = load_small("testSet.txt")
+    pairs = evaluate(nbc, test_docs)
+    metrics(pairs)
+
+
+    
